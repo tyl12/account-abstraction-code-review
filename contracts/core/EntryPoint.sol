@@ -67,7 +67,7 @@ contract EntryPoint is IEntryPoint, StakeManager, NonceManager, ReentrancyGuard,
      * @param opInfo     - The opInfo filled by validatePrepayment for this userOp.
      * @return collected - The total amount this userOp paid.
      */
-    function _executeUserOp(
+    function _executeUserOp( //@@ called from handleOps()
         uint256 opIndex,
         UserOperation calldata userOp,
         UserOpInfo memory opInfo
@@ -78,7 +78,7 @@ contract EntryPoint is IEntryPoint, StakeManager, NonceManager, ReentrancyGuard,
         uint256 preGas = gasleft();
         bytes memory context = getMemoryBytesFromOffset(opInfo.contextOffset);
 
-        try this.innerHandleOp(userOp.callData, opInfo, context) returns (
+        try this.innerHandleOp(userOp.callData, opInfo, context) returns ( //@@!!
             uint256 _actualGasCost
         ) {
             collected = _actualGasCost;
@@ -98,13 +98,13 @@ contract EntryPoint is IEntryPoint, StakeManager, NonceManager, ReentrancyGuard,
                 revert FailedOp(opIndex, "AA95 out of gas");
             }
 
-            uint256 actualGas = preGas - gasleft() + opInfo.preOpGas;
+            uint256 actualGas = preGas - gasleft() + opInfo.preOpGas;//gas 余额前后的差值 + 预先转入的gas，实际消耗的gas
             collected = _handlePostOp(
                 opIndex,
                 IPaymaster.PostOpMode.postOpReverted,
                 opInfo,
                 context,
-                actualGas
+                actualGas //@@ 传入到目前为止，实际使用的gas， 在 _handlePostOp 内部，会继续增加该值
             );
         }
     }
@@ -123,8 +123,9 @@ contract EntryPoint is IEntryPoint, StakeManager, NonceManager, ReentrancyGuard,
                 (
                     uint256 validationData,
                     uint256 pmValidationData
-                ) = _validatePrepayment(i, ops[i], opInfo);
-                _validateAccountAndPaymasterValidationData(
+                ) = _validatePrepayment(i, ops[i], opInfo);//@@ 检查 account 和paymaster的deposit 余额，扣减，调用sender和paymaster 的 validateData函数，获得相应的validationData
+
+                _validateAccountAndPaymasterValidationData( //检查 validationData和 paymasterValidationData是否 expired
                     i,
                     validationData,
                     pmValidationData,
@@ -136,10 +137,10 @@ contract EntryPoint is IEntryPoint, StakeManager, NonceManager, ReentrancyGuard,
             emit BeforeExecution();
 
             for (uint256 i = 0; i < opslen; i++) {
-                collected += _executeUserOp(i, ops[i], opInfos[i]);
+                collected += _executeUserOp(i, ops[i], opInfos[i]); //@@ 返回 发起用户 为 各个userop 所支付的 gas
             }
 
-            _compensate(beneficiary, collected);
+            _compensate(beneficiary, collected); //@@ 从当前合约，向beneficiary 发送  collected 量的 ETH
         }
     }
 
@@ -247,12 +248,12 @@ contract EntryPoint is IEntryPoint, StakeManager, NonceManager, ReentrancyGuard,
      * @param opInfo   - The UserOpInfo struct.
      * @param context  - The context bytes.
      */
-    function innerHandleOp(
+    function innerHandleOp( //@@ called from _executeUserOp()
         bytes memory callData,
         UserOpInfo memory opInfo,
         bytes calldata context
     ) external returns (uint256 actualGasCost) {
-        uint256 preGas = gasleft();
+        uint256 preGas = gasleft(); //@@ 剩余的 gas
         require(msg.sender == address(this), "AA92 internal call only");
         MemoryUserOp memory mUserOp = opInfo.mUserOp;
 
@@ -260,7 +261,7 @@ contract EntryPoint is IEntryPoint, StakeManager, NonceManager, ReentrancyGuard,
         unchecked {
             // handleOps was called with gas limit too low. abort entire bundle.
             if (
-                gasleft() < callGasLimit + mUserOp.verificationGasLimit + 5000
+                gasleft() < callGasLimit + mUserOp.verificationGasLimit + 5000 //@@ 剩余的gas 太少， revert
             ) {
                 assembly {
                     mstore(0, INNER_OUT_OF_GAS)
@@ -271,7 +272,7 @@ contract EntryPoint is IEntryPoint, StakeManager, NonceManager, ReentrancyGuard,
 
         IPaymaster.PostOpMode mode = IPaymaster.PostOpMode.opSucceeded;
         if (callData.length > 0) {
-            bool success = Exec.call(mUserOp.sender, 0, callData, callGasLimit);
+            bool success = Exec.call(mUserOp.sender, 0, callData, callGasLimit);//@@ 
             if (!success) {
                 bytes memory result = Exec.getReturnData(REVERT_REASON_MAX_LEN);
                 if (result.length > 0) {
@@ -338,7 +339,7 @@ contract EntryPoint is IEntryPoint, StakeManager, NonceManager, ReentrancyGuard,
     ) internal pure returns (uint256 requiredPrefund) {
         unchecked {
             // When using a Paymaster, the verificationGasLimit is used also to as a limit for the postOp call.
-            // Our security model might call postOp eventually twice.
+            // Our security model might call postOp eventually twice.  //@@!!@@ ??
             uint256 mul = mUserOp.paymaster != address(0) ? 3 : 1;
             uint256 requiredGas = mUserOp.callGasLimit +
                 mUserOp.verificationGasLimit *
@@ -418,14 +419,14 @@ contract EntryPoint is IEntryPoint, StakeManager, NonceManager, ReentrancyGuard,
             address paymaster = mUserOp.paymaster;
             numberMarker();
             uint256 missingAccountFunds = 0;
-            if (paymaster == address(0)) {
-                uint256 bal = balanceOf(sender);
+            if (paymaster == address(0)) { //如果paymaster为空，则直接查交易发起者 sender 的余额，
+                uint256 bal = balanceOf(sender);//@@ sender 剩余的ETH 量，和 requiredPrefund 比较， 得到sender账号下还缺的eth 量
                 missingAccountFunds = bal > requiredPrefund
                     ? 0
                     : requiredPrefund - bal;
             }
             try
-                IAccount(sender).validateUserOp{
+                IAccount(sender).validateUserOp{ //@@ BaseAccount 中定义接口， 具体得Account中，进行内部实现； 由用户的account 合约来决定如何处理 账户余额不足这种情况
                     gas: mUserOp.verificationGasLimit
                 }(op, opInfo.userOpHash, missingAccountFunds)
             returns (uint256 _validationData) {
@@ -438,15 +439,15 @@ contract EntryPoint is IEntryPoint, StakeManager, NonceManager, ReentrancyGuard,
             } catch {
                 revert FailedOp(opIndex, "AA23 reverted (or OOG)");
             }
-            if (paymaster == address(0)) {
+            if (paymaster == address(0)) { //@@ 如果paymaster为空，则检查当前合约的 deposit[sender]，即 用户在当前合约的存款，如果存款不足，则revert
                 DepositInfo storage senderInfo = deposits[sender];
                 uint256 deposit = senderInfo.deposit;
                 if (requiredPrefund > deposit) {
                     revert FailedOp(opIndex, "AA21 didn't pay prefund");
                 }
-                senderInfo.deposit = uint112(deposit - requiredPrefund);
+                senderInfo.deposit = uint112(deposit - requiredPrefund); //用户存款 扣减 本次需要的  requiredPrefund
             }
-            gasUsedByValidateAccountPrepayment = preGas - gasleft();
+            gasUsedByValidateAccountPrepayment = preGas - gasleft(); //当前合约调用（验证账户余额）消耗的gas
         }
     }
 
@@ -480,12 +481,12 @@ contract EntryPoint is IEntryPoint, StakeManager, NonceManager, ReentrancyGuard,
                 gasUsedByValidateAccountPrepayment;
 
             address paymaster = mUserOp.paymaster;
-            DepositInfo storage paymasterInfo = deposits[paymaster];
+            DepositInfo storage paymasterInfo = deposits[paymaster];//@@ paymaster 的deposit 应该要大于 requiredPreFund
             uint256 deposit = paymasterInfo.deposit;
             if (deposit < requiredPreFund) {
                 revert FailedOp(opIndex, "AA31 paymaster deposit too low");
             }
-            paymasterInfo.deposit = uint112(deposit - requiredPreFund);
+            paymasterInfo.deposit = uint112(deposit - requiredPreFund); // 更新paymaster 的存款
             try
                 IPaymaster(paymaster).validatePaymasterUserOp{gas: gas}(
                     op,
@@ -580,23 +581,29 @@ contract EntryPoint is IEntryPoint, StakeManager, NonceManager, ReentrancyGuard,
 
         // Validate all numeric values in userOp are well below 128 bit, so they can safely be added
         // and multiplied without causing overflow.
-        uint256 maxGasValues = mUserOp.preVerificationGas |
+        uint256 maxGasValues = mUserOp.preVerificationGas |  //@@ 单纯的gas 数量， 没有* gasprice， 故不是ETH 的量
             mUserOp.verificationGasLimit |
             mUserOp.callGasLimit |
             userOp.maxFeePerGas |
-            userOp.maxPriorityFeePerGas;
+            userOp.maxPriorityFeePerGas; //@@ 验证所有变量字段都小于 120 bit
         require(maxGasValues <= type(uint120).max, "AA94 gas values overflow");
 
         uint256 gasUsedByValidateAccountPrepayment;
-        uint256 requiredPreFund = _getRequiredPrefund(mUserOp);
+        uint256 requiredPreFund = _getRequiredPrefund(mUserOp);//@@ 根据调用参数，计算出需要预先充入的 ETH 量： 
+                                                                //    (preverificationGas +  //额外要求的gas
+                                                                //    verificationGasLimit +  //调用当前函数 _validatePrepayment 需要的gas
+                                                                //    callGasLimit) 
+                                                                //  * maxFeePerGas, 对于paymaster的情况，postOp可能会被调用两次
         (
-            gasUsedByValidateAccountPrepayment,
+            gasUsedByValidateAccountPrepayment, //调用 _validateAccountPrepayment 内部消耗的gas
             validationData
-        ) = _validateAccountPrepayment(
+        ) = _validateAccountPrepayment(// 如果没有paymaster， 则需要sender 自行支付gas， 
+                                        //故 检查 sender名下在当前合约deposit[]的eth量， 如果 < requiredPreFund; 则revert
+                                        //如果有足够deposit[sender]，则从中扣除 requiredPreFund 的量
             opIndex,
             userOp,
             outOpInfo,
-            requiredPreFund
+            requiredPreFund  //单位： ETH量
         );
         
         if (!_validateAndUpdateNonce(mUserOp.sender, mUserOp.nonce)) {
@@ -609,7 +616,7 @@ contract EntryPoint is IEntryPoint, StakeManager, NonceManager, ReentrancyGuard,
 
         bytes memory context;
         if (mUserOp.paymaster != address(0)) {
-            (context, paymasterValidationData) = _validatePaymasterPrepayment(
+            (context, paymasterValidationData) = _validatePaymasterPrepayment( //检查paymaster账户的余额，确保 paymaster 的deposit 应该要大于 requiredPreFund， 并进行扣减
                 opIndex,
                 userOp,
                 outOpInfo,
@@ -618,14 +625,14 @@ contract EntryPoint is IEntryPoint, StakeManager, NonceManager, ReentrancyGuard,
             );
         }
         unchecked {
-            uint256 gasUsed = preGas - gasleft();
+            uint256 gasUsed = preGas - gasleft();//@@ 当前 _validatePrepayment 整个函数所消耗的gas, 必须小于 verificationGasLimit
 
             if (userOp.verificationGasLimit < gasUsed) {
                 revert FailedOp(opIndex, "AA40 over verificationGasLimit");
             }
-            outOpInfo.prefund = requiredPreFund;
+            outOpInfo.prefund = requiredPreFund;//deposit 中已经扣减
             outOpInfo.contextOffset = getOffsetOfMemoryBytes(context);
-            outOpInfo.preOpGas = preGas - gasleft() + userOp.preVerificationGas;
+            outOpInfo.preOpGas = preGas - gasleft() + userOp.preVerificationGas; //@@ executeuserop 中会用到
         }
     }
 
@@ -653,7 +660,7 @@ contract EntryPoint is IEntryPoint, StakeManager, NonceManager, ReentrancyGuard,
             uint256 gasPrice = getUserOpGasPrice(mUserOp);
 
             address paymaster = mUserOp.paymaster;
-            if (paymaster == address(0)) {
+            if (paymaster == address(0)) {//@@ 如果设置过paymaster，则退款给paymaster，否则，退款给 sender
                 refundAddress = mUserOp.sender;
             } else {
                 refundAddress = paymaster;
@@ -665,7 +672,7 @@ contract EntryPoint is IEntryPoint, StakeManager, NonceManager, ReentrancyGuard,
                         }(mode, context, actualGasCost);
                     } else {
                         try
-                            IPaymaster(paymaster).postOp{
+                            IPaymaster(paymaster).postOp{ //@@ 调用 paymaster 的 postOp()
                                 gas: mUserOp.verificationGasLimit
                             }(mode, context, actualGasCost)
                         // solhint-disable-next-line no-empty-blocks
@@ -680,13 +687,13 @@ contract EntryPoint is IEntryPoint, StakeManager, NonceManager, ReentrancyGuard,
                     }
                 }
             }
-            actualGas += preGas - gasleft();
+            actualGas += preGas - gasleft();//在前面已经消耗的gas上，继续增加当前函数消耗的gas，得到总的gas
             actualGasCost = actualGas * gasPrice;
             if (opInfo.prefund < actualGasCost) {
                 revert FailedOp(opIndex, "AA51 prefund below actualGasCost");
             }
-            uint256 refund = opInfo.prefund - actualGasCost;
-            _incrementDeposit(refundAddress, refund);
+            uint256 refund = opInfo.prefund - actualGasCost;//@@ 预先从deposits[]中扣减的量 - 实际的gas消耗
+            _incrementDeposit(refundAddress, refund);//@@ 重新打回 deposit[sender or paymaster]
             bool success = mode == IPaymaster.PostOpMode.opSucceeded;
             emit UserOperationEvent(
                 opInfo.userOpHash,

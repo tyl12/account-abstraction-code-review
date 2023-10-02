@@ -16,6 +16,8 @@ library Exec {
     ) internal returns (bool success) {
         assembly {
             success := call(txGas, to, value, add(data, 0x20), mload(data), 0, 0)
+            //@@ call(g, a, v, in, insize, out, outsize), 	使用 mem[in...(in + insize)) 作为输入数据， 
+            //@@ 提供 g gas 和 v wei 对地址 a 发起消息调用， 输出结果数据保存在 mem[out...(out + outsize))， 发生错误（比如 gas 不足）时返回 0，正确结束返回 1
         }
     }
 

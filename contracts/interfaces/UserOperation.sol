@@ -24,14 +24,14 @@ import {calldataKeccak} from "../core/Helpers.sol";
 struct UserOperation {
     address sender;
     uint256 nonce;
-    bytes initCode;
-    bytes callData;
-    uint256 callGasLimit;
-    uint256 verificationGasLimit;
-    uint256 preVerificationGas;
+    bytes initCode;//@@ 如何设置，则用于创建account contract
+    bytes callData;//@@ method call
+    uint256 callGasLimit; //@@ gas用于调用 callGasLimit
+    uint256 verificationGasLimit;//@@ gas 用于 validateUserOp， validatePaymasterUserOp.
+    uint256 preVerificationGas;//@@ 额外需要支付的gas
     uint256 maxFeePerGas;
     uint256 maxPriorityFeePerGas;
-    bytes paymasterAndData;
+    bytes paymasterAndData;//@@ 如果设置，则包含paymaster地址和特定数据，由paymaster支付gas，而非sender
     bytes signature;
 }
 

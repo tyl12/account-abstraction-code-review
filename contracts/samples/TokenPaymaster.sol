@@ -71,7 +71,7 @@ contract TokenPaymaster is BasePaymaster, UniswapHelper, OracleHelper {
         UniswapHelperConfig memory _uniswapHelperConfig,
         address _owner
     )
-    BasePaymaster(
+    BasePaymaster(//@@ 初始化baseclass
     _entryPoint
     )
     OracleHelper(
@@ -121,7 +121,8 @@ contract TokenPaymaster is BasePaymaster, UniswapHelper, OracleHelper {
     function _validatePaymasterUserOp(UserOperation calldata userOp, bytes32, uint256 requiredPreFund)
     internal
     override
-    returns (bytes memory context, uint256 validationResult) {unchecked {
+    returns (bytes memory context, uint256 validationResult) {
+        unchecked {
             uint256 priceMarkup = tokenPaymasterConfig.priceMarkup;
             uint256 paymasterAndDataLength = userOp.paymasterAndData.length - 20;
             require(paymasterAndDataLength == 0 || paymasterAndDataLength == 32,
@@ -138,8 +139,9 @@ contract TokenPaymaster is BasePaymaster, UniswapHelper, OracleHelper {
                 }
             }
             uint256 tokenAmount = weiToToken(preChargeNative, cachedPriceWithMarkup);
-            SafeERC20.safeTransferFrom(token, userOp.sender, address(this), tokenAmount);
-            context = abi.encode(tokenAmount, userOp.maxFeePerGas, userOp.maxPriorityFeePerGas, userOp.sender);
+            SafeERC20.safeTransferFrom(token, userOp.sender, address(this), tokenAmount);//@@ 从发起request的用户处转移token 到当前合约
+            context = abi.encode(tokenAmount, //@@ 用户预先充值的token量
+                    userOp.maxFeePerGas, userOp.maxPriorityFeePerGas, userOp.sender);
             validationResult = _packValidationData(
                 false,
                 uint48(cachedPriceTimestamp + tokenPaymasterConfig.priceMaxAge),
@@ -157,7 +159,7 @@ contract TokenPaymaster is BasePaymaster, UniswapHelper, OracleHelper {
         unchecked {
             uint256 priceMarkup = tokenPaymasterConfig.priceMarkup;
             (
-                uint256 preCharge,
+                uint256 preCharge, //@@ 预先充值的量
                 uint256 maxFeePerGas,
                 uint256 maxPriorityFeePerGas,
                 address userOpSender
@@ -174,14 +176,14 @@ contract TokenPaymaster is BasePaymaster, UniswapHelper, OracleHelper {
         // Refund tokens based on actual gas cost
             uint256 actualChargeNative = actualGasCost + tokenPaymasterConfig.refundPostopCost * gasPrice;
             uint256 actualTokenNeeded = weiToToken(actualChargeNative, cachedPriceWithMarkup);
-            if (preCharge > actualTokenNeeded) {
+            if (preCharge > actualTokenNeeded) { //@@ 预先充值的量 >  实际需要的量， 则将多余的量，从当前合约转回 userop的发送方，即，打回token
                 // If the initially provided token amount is greater than the actual amount needed, refund the difference
                 SafeERC20.safeTransfer(
                     token,
                     userOpSender,
                     preCharge - actualTokenNeeded
                 );
-            } else if (preCharge < actualTokenNeeded) {
+            } else if (preCharge < actualTokenNeeded) { //@@ 预先充值的量《 实际需要的量， 则从用户处再转入差额部分
                 // Attempt to cover Paymaster's gas expenses by withdrawing the 'overdraft' from the client
                 // If the transfer reverts also revert the 'postOp' to remove the incentive to cheat
                 SafeERC20.safeTransferFrom(
@@ -193,7 +195,7 @@ contract TokenPaymaster is BasePaymaster, UniswapHelper, OracleHelper {
             }
 
             emit UserOperationSponsored(userOpSender, actualTokenNeeded, actualGasCost, _cachedPrice);
-            refillEntryPointDeposit(_cachedPrice);
+            refillEntryPointDeposit(_cachedPrice);//@@ 将当前账户的 eth 余额 冲入 entrypoint合约
         }
     }
 

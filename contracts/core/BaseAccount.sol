@@ -52,7 +52,7 @@ abstract contract BaseAccount is IAccount {
         uint256 missingAccountFunds
     ) external virtual override returns (uint256 validationData) {
         _requireFromEntryPoint();
-        validationData = _validateSignature(userOp, userOpHash);
+        validationData = _validateSignature(userOp, userOpHash);//@@ 拍生类中需要实现
         _validateNonce(userOp.nonce);
         _payPrefund(missingAccountFunds);
     }

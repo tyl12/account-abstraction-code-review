@@ -26,8 +26,8 @@ abstract contract BasePaymaster is IPaymaster, Ownable {
         bytes32 userOpHash,
         uint256 maxCost
     ) external override returns (bytes memory context, uint256 validationData) {
-        _requireFromEntryPoint();
-        return _validatePaymasterUserOp(userOp, userOpHash, maxCost);
+        _requireFromEntryPoint();//@@ 必须是 entrypoint 发起
+        return _validatePaymasterUserOp(userOp, userOpHash, maxCost); //@@ 派生类 overwrite, refer to TokenPaymaster::_validatePaymasterUserOp()
     }
 
     /**
@@ -49,7 +49,7 @@ abstract contract BasePaymaster is IPaymaster, Ownable {
         uint256 actualGasCost
     ) external override {
         _requireFromEntryPoint();
-        _postOp(mode, context, actualGasCost);
+        _postOp(mode, context, actualGasCost); //@@ overwrite by inheritance
     }
 
     /**
